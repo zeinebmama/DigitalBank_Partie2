@@ -1,0 +1,798 @@
+openapi: 3.0.3
+info:
+  title: DigitalBank Fraud Detection API
+  description: |
+    ## 📋 Présentation
+    
+    L'API **Fraud Detection** de DigitalBank France permet de scorer en temps réel les transactions bancaires afin de détecter les fraudes potentielles. Elle s'appuie sur un modèle de Machine Learning entraîné sur des données historiques de transactions.
+    
+    ## 🎯 Cas d'Usage
+    
+    - **Scoring temps réel** : Analyse d'une transaction au moment de son autorisation
+    - **Batch processing** : Analyse de masse pour audit historique
+    - **Monitoring** : Health checks et métriques de performance
+    
+    ## 🔐 Sécurité
+    
+    - **Authentification** : Bearer token JWT (durée 15 minutes)
+    - **Rate Limiting** : 100 requêtes/seconde par client
+    - **IP Whitelisting** : Production limitée aux IP VPN entreprise
+    - **Chiffrement** : TLS 1.3 obligatoire
+    
+    ## 📊 SLA
+    
+    - **Disponibilité** : 99,5% (hors maintenance planifiée)
+    - **Latence** : < 100ms (p95) pour endpoint /predict
+    - **Throughput** : 10 000 transactions/seconde
+    
+    ## 📞 Support
+    
+    - Email : api-support@digitalbank.fr
+    - Documentation : https://docs.digitalbank-fraud.esic.cloud
+    - Status page : https://status.digitalbank.fr
+    
+  version: 1.2.0
+  contact:
+    name: DigitalBank API Team
+    email: api-support@digitalbank.fr
+    url: https://docs.digitalbank-fraud.esic.cloud
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: https://digitalbank.fr/terms
+
+servers:
+  - url: https://api.digitalbank-fraud.esic.cloud/v1
+    description: Production
+  - url: https://api-staging.digitalbank-fraud.esic.cloud/v1
+    description: Staging (tests pré-production)
+  - url: http://localhost:8000/v1
+    description: Développement local
+
+tags:
+  - name: Fraud Detection
+    description: Endpoints de scoring et détection de fraude
+  - name: Health & Monitoring
+    description: Endpoints de supervision et santé de l'API
+  - name: Model Management
+    description: Gestion des modèles ML (admin uniquement)
+
+paths:
+  /predict:
+    post:
+      tags:
+        - Fraud Detection
+      summary: Scorer une transaction individuelle
+      description: |
+        Analyse une transaction bancaire et retourne :
+        - **fraud_score** : probabilité de fraude (0.0 à 1.0)
+        - **risk_level** : niveau de risque (LOW, MEDIUM, HIGH, CRITICAL)
+        - **explanation** : features ayant le plus contribué à la décision (SHAP values)
+        
+        ### Seuils de Décision
+        - `fraud_score < 0.3` → LOW (transaction autorisée automatiquement)
+        - `0.3 ≤ fraud_score < 0.6` → MEDIUM (vérification manuelle recommandée)
+        - `0.6 ≤ fraud_score < 0.85` → HIGH (blocage temporaire + alerte analystes)
+        - `fraud_score ≥ 0.85` → CRITICAL (blocage immédiat + escalade)
+        
+        ### Performance
+        - Latence moyenne : 65ms (p50), 87ms (p95)
+        - Timeout : 5 secondes
+        
+      operationId: predictFraud
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionInput'
+            examples:
+              legitimate_transaction:
+                summary: Transaction légitime (supermarché)
+                value:
+                  transaction_id: "txn_2026012215487abc"
+                  user_id: "usr_98765"
+                  amount: 45.30
+                  merchant_name: "Carrefour Paris 15"
+                  merchant_category: "5411"
+                  merchant_country: "FR"
+                  timestamp: "2026-01-22T14:30:00Z"
+                  device_id: "dev_iphone13_user98765"
+                  ip_address: "82.64.123.45"
+                  user_location:
+                    latitude: 48.8566
+                    longitude: 2.3522
+                  merchant_location:
+                    latitude: 48.8422
+                    longitude: 2.2897
+                  card_present: true
+                  
+              suspicious_transaction:
+                summary: Transaction suspecte (montant élevé à l'étranger)
+                value:
+                  transaction_id: "txn_2026012217893def"
+                  user_id: "usr_12345"
+                  amount: 2850.00
+                  merchant_name: "Electronics Store Bangkok"
+                  merchant_category: "5732"
+                  merchant_country: "TH"
+                  timestamp: "2026-01-22T16:45:00Z"
+                  device_id: "dev_unknown"
+                  ip_address: "103.24.56.78"
+                  user_location:
+                    latitude: 48.8566
+                    longitude: 2.3522
+                  merchant_location:
+                    latitude: 13.7563
+                    longitude: 100.5018
+                  card_present: false
+                  
+              high_risk_transaction:
+                summary: Transaction haute probabilité fraude (pattern suspect)
+                value:
+                  transaction_id: "txn_2026012219456ghi"
+                  user_id: "usr_54321"
+                  amount: 999.99
+                  merchant_name: "Online Gaming CRYPTO"
+                  merchant_category: "7995"
+                  merchant_country: "CY"
+                  timestamp: "2026-01-22T18:20:00Z"
+                  device_id: "dev_unknown"
+                  ip_address: "185.220.101.15"
+                  card_present: false
+                  additional_context:
+                    transaction_velocity_1h: 8
+                    days_since_last_transaction: 180
+                    
+      responses:
+        '200':
+          description: Scoring réussi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionResponse'
+              examples:
+                low_risk:
+                  summary: Transaction à faible risque
+                  value:
+                    transaction_id: "txn_2026012215487abc"
+                    fraud_score: 0.08
+                    risk_level: "LOW"
+                    recommendation: "APPROVE"
+                    explanation:
+                      top_features:
+                        - feature: "amount"
+                          contribution: -0.12
+                          description: "Montant cohérent avec historique utilisateur"
+                        - feature: "distance_from_home"
+                          contribution: -0.08
+                          description: "Transaction proche du domicile"
+                        - feature: "merchant_category"
+                          contribution: -0.05
+                          description: "Catégorie marchant fréquente"
+                    model_version: "v2.3.1"
+                    processing_time_ms: 63
+                    timestamp: "2026-01-22T14:30:01Z"
+                    
+                high_risk:
+                  summary: Transaction à haut risque
+                  value:
+                    transaction_id: "txn_2026012219456ghi"
+                    fraud_score: 0.92
+                    risk_level: "CRITICAL"
+                    recommendation: "BLOCK"
+                    explanation:
+                      top_features:
+                        - feature: "merchant_category"
+                          contribution: 0.35
+                          description: "Catégorie à haut risque (jeux en ligne / crypto)"
+                        - feature: "device_id"
+                          contribution: 0.28
+                          description: "Device non reconnu"
+                        - feature: "ip_reputation"
+                          contribution: 0.18
+                          description: "IP associée à activités suspectes (TOR exit node)"
+                        - feature: "transaction_velocity"
+                          contribution: 0.11
+                          description: "8 transactions en 1h (pattern inhabituel)"
+                    model_version: "v2.3.1"
+                    processing_time_ms: 71
+                    timestamp: "2026-01-22T18:20:01Z"
+                    alert_id: "alert_20260122_456789"
+                    
+        '400':
+          description: Requête invalide (données manquantes ou format incorrect)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "VALIDATION_ERROR"
+                message: "Le champ 'amount' est requis"
+                details:
+                  field: "amount"
+                  constraint: "required"
+                timestamp: "2026-01-22T14:30:01Z"
+                request_id: "req_abc123def456"
+                
+        '401':
+          description: Non authentifié (token manquant ou expiré)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "UNAUTHORIZED"
+                message: "Token JWT expiré. Veuillez vous réauthentifier."
+                timestamp: "2026-01-22T14:30:01Z"
+                request_id: "req_abc123def456"
+                
+        '429':
+          description: Limite de taux dépassée (rate limiting)
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Nombre de requêtes autorisées par seconde
+              example: 100
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Nombre de requêtes restantes
+              example: 0
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+              description: Timestamp Unix de réinitialisation du compteur
+              example: 1737559201
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "RATE_LIMIT_EXCEEDED"
+                message: "Limite de 100 requêtes/seconde dépassée"
+                retry_after: 1
+                timestamp: "2026-01-22T14:30:01Z"
+                request_id: "req_abc123def456"
+                
+        '500':
+          description: Erreur serveur interne
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "INTERNAL_SERVER_ERROR"
+                message: "Une erreur interne est survenue. L'équipe technique a été notifiée."
+                timestamp: "2026-01-22T14:30:01Z"
+                request_id: "req_abc123def456"
+                incident_id: "inc_2026012214"
+                
+        '503':
+          description: Service temporairement indisponible (maintenance ou surcharge)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Nombre de secondes avant réessai
+              example: 30
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "SERVICE_UNAVAILABLE"
+                message: "Modèle ML en cours de rechargement (retraining). Réessayez dans 30 secondes."
+                timestamp: "2026-01-22T14:30:01Z"
+                request_id: "req_abc123def456"
+
+  /predict/batch:
+    post:
+      tags:
+        - Fraud Detection
+      summary: Scorer un lot de transactions (batch)
+      description: |
+        Analyse jusqu'à **10 000 transactions** en une seule requête.
+        
+        ### Cas d'Usage
+        - Audit historique de transactions passées
+        - Réévaluation après mise à jour du modèle
+        - Analyse forensique post-incident
+        
+        ### Performance
+        - Latence : ~50ms par transaction
+        - Timeout : 10 minutes
+        - Traitement asynchrone : résultats disponibles via callback webhook
+        
+      operationId: predictBatch
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transactions
+              properties:
+                transactions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/TransactionInput'
+                  minItems: 1
+                  maxItems: 10000
+                callback_url:
+                  type: string
+                  format: uri
+                  description: "URL webhook pour notification fin de traitement (optionnel)"
+                  example: "https://digitalbank.fr/webhooks/batch-results"
+      responses:
+        '202':
+          description: Batch accepté et en cours de traitement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id:
+                    type: string
+                    example: "batch_20260122_789456"
+                  status:
+                    type: string
+                    enum: [QUEUED, PROCESSING]
+                    example: "QUEUED"
+                  transactions_count:
+                    type: integer
+                    example: 5420
+                  estimated_completion:
+                    type: string
+                    format: date-time
+                    example: "2026-01-22T14:35:00Z"
+                  results_url:
+                    type: string
+                    format: uri
+                    example: "https://api.digitalbank-fraud.esic.cloud/v1/batch/batch_20260122_789456/results"
+
+  /health:
+    get:
+      tags:
+        - Health & Monitoring
+      summary: Health check de l'API
+      description: |
+        Vérifie que l'API est opérationnelle et que tous les composants critiques sont disponibles.
+        
+        ### Composants Vérifiés
+        - Connexion base de données Supabase
+        - Modèle ML chargé en mémoire
+        - Connectivité Redis (cache)
+        - File d'attente RabbitMQ (batch processing)
+        
+        ### Utilisation
+        - **Kubernetes liveness probe** : appel toutes les 10 secondes
+        - **Load balancer health check**
+        - **Monitoring externe** (Pingdom, UptimeRobot)
+        
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service opérationnel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "healthy"
+                timestamp: "2026-01-22T14:30:01Z"
+                version: "1.2.0"
+                model_loaded: true
+                model_version: "v2.3.1"
+                dependencies:
+                  database:
+                    status: "healthy"
+                    latency_ms: 12
+                  redis:
+                    status: "healthy"
+                    latency_ms: 3
+                  rabbitmq:
+                    status: "healthy"
+                    queue_depth: 42
+                uptime_seconds: 3456789
+                
+        '503':
+          description: Service dégradé ou indisponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "unhealthy"
+                timestamp: "2026-01-22T14:30:01Z"
+                version: "1.2.0"
+                model_loaded: false
+                dependencies:
+                  database:
+                    status: "unhealthy"
+                    error: "Connection timeout after 5s"
+                  redis:
+                    status: "healthy"
+                    latency_ms: 3
+                uptime_seconds: 3456789
+
+  /metrics:
+    get:
+      tags:
+        - Health & Monitoring
+      summary: Métriques Prometheus
+      description: |
+        Expose les métriques au format Prometheus pour monitoring.
+        
+        ### Métriques Principales
+        - `fraud_api_requests_total` : Nombre total de requêtes (par endpoint, status)
+        - `fraud_api_request_duration_seconds` : Distribution latence requêtes
+        - `fraud_model_predictions_total` : Nombre de prédictions par risk_level
+        - `fraud_model_score_distribution` : Histogramme des fraud_scores
+        - `fraud_api_errors_total` : Nombre d'erreurs par type
+        
+      operationId: getMetrics
+      security: []
+      responses:
+        '200':
+          description: Métriques Prometheus
+          content:
+            text/plain:
+              example: |
+                # HELP fraud_api_requests_total Total number of API requests
+                # TYPE fraud_api_requests_total counter
+                fraud_api_requests_total{endpoint="/predict",status="200"} 145678
+                fraud_api_requests_total{endpoint="/predict",status="400"} 234
+                
+                # HELP fraud_api_request_duration_seconds API request latency
+                # TYPE fraud_api_request_duration_seconds histogram
+                fraud_api_request_duration_seconds_bucket{le="0.05"} 98234
+                fraud_api_request_duration_seconds_bucket{le="0.1"} 142567
+                fraud_api_request_duration_seconds_bucket{le="0.5"} 145456
+                fraud_api_request_duration_seconds_sum 9456.78
+                fraud_api_request_duration_seconds_count 145678
+                
+                # HELP fraud_model_predictions_total Total predictions by risk level
+                # TYPE fraud_model_predictions_total counter
+                fraud_model_predictions_total{risk_level="LOW"} 123456
+                fraud_model_predictions_total{risk_level="MEDIUM"} 18765
+                fraud_model_predictions_total{risk_level="HIGH"} 2987
+                fraud_model_predictions_total{risk_level="CRITICAL"} 470
+
+  /models/current:
+    get:
+      tags:
+        - Model Management
+      summary: Informations sur le modèle actuellement déployé
+      description: |
+        Retourne les métadonnées du modèle ML en production.
+        
+        **Accès** : Administrateurs et Data Scientists uniquement
+        
+      operationId: getCurrentModel
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Informations modèle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInfo'
+              example:
+                model_id: "model_v2.3.1_20260115"
+                version: "v2.3.1"
+                algorithm: "XGBoost"
+                trained_date: "2026-01-15T02:00:00Z"
+                deployed_date: "2026-01-15T08:30:00Z"
+                training_dataset:
+                  size: 2450000
+                  date_range: "2024-01-01 to 2025-12-31"
+                performance_metrics:
+                  accuracy: 0.987
+                  precision: 0.952
+                  recall: 0.962
+                  f1_score: 0.957
+                  auc_roc: 0.994
+                features_count: 37
+                feature_importance_top5:
+                  - feature: "transaction_velocity_1h"
+                    importance: 0.18
+                  - feature: "merchant_category"
+                    importance: 0.15
+                  - feature: "distance_from_home"
+                    importance: 0.12
+                  - feature: "amount_zscore"
+                    importance: 0.10
+                  - feature: "device_trust_score"
+                    importance: 0.09
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Token JWT obtenu via l'endpoint `/auth/token`.
+        
+        **Format** : `Authorization: Bearer <token>`
+        
+        **Durée de validité** : 15 minutes
+        
+        **Refresh** : Utiliser le refresh_token pour obtenir un nouveau token sans réauthentification
+
+  schemas:
+    TransactionInput:
+      type: object
+      required:
+        - transaction_id
+        - user_id
+        - amount
+        - merchant_category
+        - timestamp
+      properties:
+        transaction_id:
+          type: string
+          description: "Identifiant unique de la transaction"
+          example: "txn_2026012215487abc"
+        user_id:
+          type: string
+          description: "Identifiant du client"
+          example: "usr_98765"
+        amount:
+          type: number
+          format: float
+          minimum: 0.01
+          maximum: 999999.99
+          description: "Montant de la transaction en EUR"
+          example: 45.30
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          default: "EUR"
+          description: "Code ISO 4217 de la devise"
+          example: "EUR"
+        merchant_name:
+          type: string
+          maxLength: 255
+          description: "Nom du commerçant"
+          example: "Carrefour Paris 15"
+        merchant_category:
+          type: string
+          pattern: "^[0-9]{4}$"
+          description: "Code MCC (Merchant Category Code)"
+          example: "5411"
+        merchant_country:
+          type: string
+          pattern: "^[A-Z]{2}$"
+          description: "Code ISO 3166-1 alpha-2 du pays du commerçant"
+          example: "FR"
+        timestamp:
+          type: string
+          format: date-time
+          description: "Date/heure de la transaction (ISO 8601)"
+          example: "2026-01-22T14:30:00Z"
+        device_id:
+          type: string
+          description: "Identifiant du device utilisé (optionnel)"
+          example: "dev_iphone13_user98765"
+        ip_address:
+          type: string
+          format: ipv4
+          description: "Adresse IP de l'utilisateur (optionnel)"
+          example: "82.64.123.45"
+        user_location:
+          $ref: '#/components/schemas/Coordinates'
+        merchant_location:
+          $ref: '#/components/schemas/Coordinates'
+        card_present:
+          type: boolean
+          description: "True si transaction avec carte physique (vs. en ligne)"
+          example: true
+        additional_context:
+          type: object
+          description: "Contexte additionnel (optionnel)"
+          properties:
+            transaction_velocity_1h:
+              type: integer
+              description: "Nombre de transactions dans la dernière heure"
+            days_since_last_transaction:
+              type: integer
+              description: "Nombre de jours depuis la dernière transaction"
+              
+    Coordinates:
+      type: object
+      required:
+        - latitude
+        - longitude
+      properties:
+        latitude:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+          example: 48.8566
+        longitude:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+          example: 2.3522
+          
+    PredictionResponse:
+      type: object
+      properties:
+        transaction_id:
+          type: string
+          example: "txn_2026012215487abc"
+        fraud_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: "Probabilité de fraude (0 = légitime, 1 = fraude certaine)"
+          example: 0.08
+        risk_level:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+          description: "Niveau de risque catégorisé"
+          example: "LOW"
+        recommendation:
+          type: string
+          enum: [APPROVE, REVIEW, CHALLENGE, BLOCK]
+          description: |
+            Action recommandée :
+            - APPROVE : autoriser automatiquement
+            - REVIEW : revue manuelle recommandée
+            - CHALLENGE : demander authentification forte (3DS)
+            - BLOCK : bloquer immédiatement
+          example: "APPROVE"
+        explanation:
+          $ref: '#/components/schemas/Explanation'
+        model_version:
+          type: string
+          example: "v2.3.1"
+        processing_time_ms:
+          type: integer
+          description: "Temps de traitement en millisecondes"
+          example: 63
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-01-22T14:30:01Z"
+        alert_id:
+          type: string
+          description: "ID de l'alerte générée (si risk_level >= HIGH)"
+          example: "alert_20260122_456789"
+          
+    Explanation:
+      type: object
+      properties:
+        top_features:
+          type: array
+          description: "Features ayant le plus contribué à la décision (SHAP values)"
+          items:
+            type: object
+            properties:
+              feature:
+                type: string
+                example: "amount"
+              contribution:
+                type: number
+                format: float
+                description: "Contribution au score (positif = augmente risque, négatif = diminue risque)"
+                example: -0.12
+              description:
+                type: string
+                example: "Montant cohérent avec historique utilisateur"
+                
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          example: "1.2.0"
+        model_loaded:
+          type: boolean
+        model_version:
+          type: string
+          example: "v2.3.1"
+        dependencies:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [healthy, unhealthy]
+              latency_ms:
+                type: integer
+              error:
+                type: string
+        uptime_seconds:
+          type: integer
+          
+    ModelInfo:
+      type: object
+      properties:
+        model_id:
+          type: string
+        version:
+          type: string
+        algorithm:
+          type: string
+        trained_date:
+          type: string
+          format: date-time
+        deployed_date:
+          type: string
+          format: date-time
+        training_dataset:
+          type: object
+          properties:
+            size:
+              type: integer
+            date_range:
+              type: string
+        performance_metrics:
+          type: object
+          properties:
+            accuracy:
+              type: number
+            precision:
+              type: number
+            recall:
+              type: number
+            f1_score:
+              type: number
+            auc_roc:
+              type: number
+        features_count:
+          type: integer
+        feature_importance_top5:
+          type: array
+          items:
+            type: object
+            properties:
+              feature:
+                type: string
+              importance:
+                type: number
+                
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: "Code d'erreur machine-readable"
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: "Message d'erreur human-readable"
+          example: "Le champ 'amount' est requis"
+        details:
+          type: object
+          description: "Détails supplémentaires (optionnel)"
+        timestamp:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+          description: "ID de la requête pour debugging"
+        incident_id:
+          type: string
+          description: "ID de l'incident si erreur serveur"
