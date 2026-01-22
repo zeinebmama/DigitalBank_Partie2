@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # Prometheus - Collecte des métriques
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # Node Exporter - Métriques système (CPU, RAM, Disk)
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # PostgreSQL Exporter - Métriques Supabase/PostgreSQL
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+
+      DATA_SOURCE_NAME: "postgresql://postgres:Dztnesic2026@db.dqoeowpnsnfiuwwjxiup.supabase.co:5432/postgres?sslmode=require"
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
+  # Flask App Exporter - Métriques de l'API Flask
+  flask-app:
+    build: .
+    container_name: fraud-api
+    ports:
+      - "5000:5000"
+    environment:
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    volumes:
+      - ./fraud_api_with_prometheus.py:/app/fraud_api.py
+      - ./fraud_detection_model.pkl:/app/fraud_detection_model.pkl
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # Grafana - Visualisation des dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
+  # Alertmanager - Gestion des alertes (optionnel mais recommandé)
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:

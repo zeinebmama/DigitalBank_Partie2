@@ -1,0 +1,86 @@
+groups:
+  - name: fraud_detection_alerts
+    rules:
+      # 1. Alerte si l'API Flask est down
+      - alert: FlaskAPIDown
+        expr: up{job="flask-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API Flask indisponible"
+          description: "L'API est down depuis plus de 1 minute."
+
+      # 2. Alerte si CPU > 80%
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU Surchargé ({{ $value }}%)"
+
+      # 3. Alerte si RAM > 90%
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mémoire saturée ({{ $value }}%)"
+
+      # 4. Alerte si Disk > 85%
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs"} - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disque presque plein ({{ $value }}%)"
+
+      # 5. Alerte si PostgreSQL est down
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Base de données inaccessible"
+
+      # 6. Alerte si trop de connexions DB
+      - alert: TooManyDatabaseConnections
+        expr: pg_stat_activity_count > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Trop de connexions DB ({{ $value }})"
+
+      # 7. Alerte si API lente (> 2s)
+      - alert: SlowAPIResponse
+        expr: rate(flask_http_request_duration_seconds_sum[5m]) / rate(flask_http_request_duration_seconds_count[5m]) > 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API Lente"
+
+      # 8. Alerte si erreurs API (> 5%)
+      - alert: HighAPIErrorRate
+        expr: rate(flask_http_request_total{status=~"5.."}[5m]) / rate(flask_http_request_total[5m]) * 100 > 5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taux d'erreurs API critique"
+
+      # 9. LA RÈGLE CRUCIALE POUR TA DÉMO (Modifiée pour réagir vite !)
+      - alert: HighFraudActivity
+        # On utilise le score moyen > 0.5 car c'est ce qui réagit le mieux à ton script
+        expr: fraud_score_average > 0.5
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: "🚨 FRAUDE DÉTECTÉE SUR DIGITALBANK !"
+          description: "Le modèle détecte une attaque en cours (Score > 0.5)."
