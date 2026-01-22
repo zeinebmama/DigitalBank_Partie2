@@ -1,29 +1,24 @@
-# Configuration Prometheus pour DigitalBank Fraud Detection
 global:
-  scrape_interval: 15s # Collecte des métriques toutes les 15 secondes
-  evaluation_interval: 15s # Évaluation des règles d'alerte toutes les 15 secondes
+  scrape_interval: 15s
+  evaluation_interval: 15s
   external_labels:
     monitor: 'fraud-detection-monitor'
 
-# Configuration Alertmanager
+# Configuration vitale pour Discord
 alerting:
   alertmanagers:
     - static_configs:
         - targets:
             - alertmanager:9093
 
-# Chargement des règles d'alerte
 rule_files:
   - 'alerts.yml'
 
-# Configuration des targets à scraper
 scrape_configs:
-  # Métriques Prometheus lui-même
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  # Métriques système (CPU, RAM, Disk)
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
@@ -32,7 +27,6 @@ scrape_configs:
         target_label: instance
         replacement: 'fraud-detection-server'
 
-  # Métriques PostgreSQL/Supabase
   - job_name: 'postgres'
     static_configs:
       - targets: ['postgres-exporter:9187']
@@ -41,10 +35,9 @@ scrape_configs:
         target_label: instance
         replacement: 'supabase-db'
 
-  # Métriques de l'API Flask
   - job_name: 'flask-api'
     static_configs:
-      - targets: ['flask-app:5000']
+      - targets: ['fraud-api:5000'] 
     metrics_path: '/metrics'
     relabel_configs:
       - source_labels: [__address__]

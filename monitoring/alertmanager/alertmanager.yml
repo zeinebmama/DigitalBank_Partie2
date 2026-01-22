@@ -1,0 +1,16 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'discord_webhook'
+
+receivers:
+- name: 'discord_webhook'
+  discord_configs:
+  - webhook_url: 'https://discord.com/api/webhooks/1463942684669382868/6CxuZiCWVYUxzbvzQBN2lmvOi_ZB225luFZwNeQbj1d29NwSe7tlIostjGHIdQ0sTjzc'
+    title: '🚨 ALERTE BANQUE : Fraude Détectée'
+    message: '{{ range .Alerts }}⚠️ L alerte {{ .Labels.alertname }} est active.\nDescription: {{ .Annotations.description }}\n{{ end }}'
