@@ -1,0 +1,22 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# --- Variables d'environnement (Sécurité !) ---
+.env
+.env.local
+
+# --- Système ---
+.DS_Store
+Thumbs.db
+
+# --- Docker / Monitoring Data (Très important pour ne pas alourdir Git) ---
+monitoring/prometheus-data/
+monitoring/grafana-data/
+monitoring/alertmanager-data/
